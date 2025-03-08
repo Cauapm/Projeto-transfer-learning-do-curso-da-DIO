@@ -1,0 +1,195 @@
+from fastai.vision.all import *  
+import tensorflow as tf
+import os
+import matplotlib.pyplot as plt
+import numpy as np
+import random
+from tensorflow.keras.models import Model
+from keras.models import Sequential
+from keras.layers import Conv2D, Activation, MaxPooling2D, Dropout, Flatten, Dense
+
+
+
+# Caminho para o dataset
+path = untar_data(URLs.PETS) / 'images'
+
+# Tipos de arquivo de imagem
+file_types = ['.jpg', '.png', '.jpeg']
+
+# Lista de imagens
+images = [os.path.join(path, f) for f in os.listdir(path)
+          if os.path.splitext(f)[1].lower() in file_types]
+
+
+
+# Número de imagens desejado
+num_images = 1000  
+
+# Verifica se há imagens suficientes no dataset
+if len(images) < num_images:
+    print(f"O dataset possui apenas {len(images)} imagens. Usando todas as imagens disponíveis.")
+    num_images = len(images)
+
+# Seleciona aleatoriamente as imagens
+idx = random.sample(range(len(images)), num_images)
+
+# Carrega, redimensiona e converte as imagens para RGB
+imgs = [Image.open(images[i]).resize((224, 224)).convert('RGB') for i in idx]
+
+# Converte as imagens para um array NumPy
+x_train = np.array([np.array(img) for img in imgs])
+
+# Define as dimensões das imagens
+img_rows, img_cols, channels = 224, 224, 3  
+
+# Ajusta o formato do array para o modelo
+x_train = x_train.reshape(x_train.shape[0], img_rows, img_cols, channels)
+
+concat_image = np.concatenate([np.asarray(img) for img in imgs[:8]], axis=1) # Exibe apenas as 8 primeiras
+plt.figure(figsize=(16, 4))
+plt.imshow(concat_image)
+plt.show()
+
+
+# Cria o modelo
+model = Sequential()
+print("Input dimensions: ", x_train.shape[1:])
+
+model.add(Conv2D(32, (3, 3), input_shape=x_train.shape[1:]))
+model.add(Activation('relu'))
+model.add(MaxPooling2D(pool_size=(2, 2)))
+
+# Adiciona mais camadas ao modelo
+model.add(Conv2D(32, (3, 3)))
+model.add(Activation('relu'))
+model.add(MaxPooling2D(pool_size=(2, 2)))
+
+model.add(Dropout(0.25))
+
+model.add(Conv2D(32, (3, 3)))
+model.add(Activation('relu'))
+model.add(MaxPooling2D(pool_size=(2, 2)))
+
+model.add(Conv2D(32, (3, 3)))
+model.add(Activation('relu'))
+model.add(MaxPooling2D(pool_size=(2, 2)))
+
+model.add(Dropout(0.25))
+
+model.add(Flatten())
+model.add(Dense(256))
+model.add(Activation('relu'))
+
+model.add(Dropout(0.5))
+
+# Define o número de classes 
+num_classes = 37  # Ajuste este valor para o número real de classes no seu dataset
+model.add(Dense(num_classes))
+model.add(Activation('softmax'))
+
+model.summary()
+
+
+labels = [random.randint(0, num_classes - 1) for _ in range(num_images)]  
+y_train = to_categorical(labels, num_classes=num_classes) 
+
+# Divide o dataset em treino e validação
+split_index = int(0.8 * len(x_train))
+x_train_split, x_val, x_test = x_train[:split_index_train], x_train[split_index_train:split_index_val], x_train[split_index_val:]
+y_train_split, y_val, y_test = y_train[:split_index_train], y_train[split_index_train:split_index_val], y_train[split_index_val:]
+
+# Compila o modelo
+model.compile(loss='categorical_crossentropy',
+              optimizer='adam',
+              metrics=['accuracy'])
+
+# Treina o modelo
+history = model.fit(x_train_split, y_train_split, 
+                    batch_size=128, 
+                    epochs=10,
+                    validation_data=(x_val, y_val))
+
+
+fig = plt.figure(figsize=(16,4))
+ax = fig.add_subplot(121)
+ax.plot(history.history["val_loss"])
+ax.set_title("validation loss")
+ax.set_xlabel("epochs")
+
+ax2 = fig.add_subplot(122)
+# The key is 'val_accuracy' not 'val_acc'
+ax2.plot(history.history["val_accuracy"])  
+ax2.set_title("validation accuracy")
+ax2.set_xlabel("epochs")
+ax2.set_ylim(0, 1)
+
+plt.show()
+
+
+vgg = tf.keras.applications.VGG16(weights='imagenet', include_top=True)
+vgg.summary()
+
+
+loss, accuracy = model.evaluate(x_test, y_test, verbose=0)
+print('Test loss:', loss)
+print('Test accuracy:', accuracy)
+
+
+inp = vgg.input
+
+new_classification_layer = Dense(num_classes, activation='softmax')
+
+out = new_classification_layer(vgg.layers[-2].output)
+
+model_new = Model(inp, out)
+
+for l, layer in enumerate(model_new.layers[:-1]):
+    layer.trainable = False
+
+for l, layer in enumerate(model_new.layers[-1:]):
+    layer.trainable = True
+
+
+
+model_new.compile(loss='categorical_crossentropy',
+              optimizer='adam',
+              metrics=['accuracy'])
+
+model_new.summary()
+
+
+history2 = model_new.fit(x_train, y_train, 
+                         batch_size=128, 
+                         epochs=10, 
+                         validation_data=(x_val, y_val))
+
+
+fig = plt.figure(figsize=(16,4))
+ax = fig.add_subplot(121)
+ax.plot(history.history["val_loss"])
+ax.plot(history2.history["val_loss"])
+ax.set_title("validation loss")
+ax.set_xlabel("epochs")
+
+ax2 = fig.add_subplot(122)
+ax2.plot(history.history["val_accuracy"])
+ax2.plot(history2.history["val_accuracy"])
+ax2.set_title("validation accuracy")
+ax2.set_xlabel("epochs")
+ax2.set_ylim(0, 1)
+
+plt.show()
+
+
+loss, accuracy = model_new.evaluate(x_test, y_test, verbose=0)
+
+print('Test loss:', loss)
+print('Test accuracy:', accuracy)
+
+
+img_index = 0  
+img = imgs[img_index]
+x = np.array(img) 
+x = x.reshape(1, img_rows, img_cols, channels)  
+
+probabilities = model_new.predict(x)
